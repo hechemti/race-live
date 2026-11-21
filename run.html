@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Race Day Runner</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff5a1f'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='14' text-anchor='middle' fill='white'%3E21%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Runner console: pure black (saves OLED battery), huge digits readable mid-stride. Single dark look by design. */
+:root {
+  --bg: #000; --panel: #11141a; --line: #262b35; --ink: #f4f6fa; --muted: #9aa3b2;
+  --signal: #ff5a1f; --good: #3cc48f; --warn: #f0b04a; --bad: #ff6b5e; --route: #6f95ff;
+  --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --body: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 400 16px/1.45 var(--body); -webkit-text-size-adjust: 100%; padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--route); outline-offset: 2px; }
+.app { max-width: 560px; margin: 0 auto; display: grid; gap: 14px; padding-top: 12px; }
+h1 { margin: 0; font: 800 30px/1 var(--display); text-transform: uppercase; letter-spacing: .02em; }
+h2 { margin: 0 0 6px; font: 700 20px/1.1 var(--display); text-transform: uppercase; letter-spacing: .03em; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 12px; }
+label { display: grid; gap: 5px; font-size: 14px; color: var(--muted); font-weight: 500; }
+input[type=text], input[type=url], select { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: #000; color: var(--ink); font-size: 17px; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 16px; }
+.toggle input { width: 22px; height: 22px; accent-color: var(--signal); }
+.btn { display: block; width: 100%; padding: 15px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 700 20px/1 var(--display); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
+.btn.go { background: var(--signal); border-color: var(--signal); color: #fff; font-size: 34px; padding: 22px 16px; }
+.btn.finish { border-color: var(--bad); color: var(--bad); }
+.btn.finish.armed { background: var(--bad); color: #000; }
+.btn:disabled { opacity: .45; }
+.row { display: flex; gap: 10px; }
+.row > * { flex: 1; min-width: 0; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; font: 700 14px/1 var(--display); letter-spacing: .07em; text-transform: uppercase; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+.pill i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+.pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.pill.live { background: var(--signal); border-color: var(--signal); color: #fff; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.alert { padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 16%, #000); border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line)); color: var(--ink); font-weight: 500; }
+.alert.bad { background: color-mix(in srgb, var(--bad) 16%, #000); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+.alert button { margin-top: 8px; }
+
+.big { text-align: center; }
+.big .lbl { font: 600 13px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.big .v { font: 800 clamp(86px, 30vw, 150px)/.9 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.big .v small { font-size: .32em; color: var(--muted); margin-left: 4px; }
+.clock { font: 700 clamp(54px, 17vw, 84px)/.95 var(--display); font-variant-numeric: tabular-nums; text-align: center; }
+.grid4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.tile .lbl { font: 600 12px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tile .v { margin-top: 6px; font: 700 40px/1 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile .v small { font-size: 16px; color: var(--muted); margin-left: 3px; }
+.share { display: grid; gap: 6px; }
+.share code { display: block; padding: 10px; border-radius: 8px; background: #000; border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: min(520px, calc(100% - 32px)); background: var(--ink); color: #000; padding: 14px 16px; border-radius: 14px; font-weight: 600; box-shadow: 0 8px 30px rgb(0 0 0 / .5); z-index: 10; }
+.toast .from { font: 700 15px/1 var(--display); text-transform: uppercase; letter-spacing: .06em; color: #8a3a12; display: block; margin-bottom: 4px; }
+.hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+ol.tips { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--muted); font-size: 15px; }
+ol.tips b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- missing tracking code -->
+  <section id="vNoTopic" hidden class="card">
+    <h1>Race Day Runner</h1>
+    <p class="muted">This link doesn't include a tracking code, so your friends' page wouldn't know where to look.</p>
+    <button class="btn go" id="btnNewTopic" type="button">Create tracking code</button>
+  </section>
+
+  <!-- setup -->
+  <section id="vSetup" hidden>
+    <div class="app" style="padding-top:0">
+      <div>
+        <h1>Race Day Runner</h1>
+        <p class="muted small" id="simNote" hidden>Simulation mode: fake GPS at 10× speed. Nothing here is your real position.</p>
+      </div>
+
+      <div class="card">
+        <h2>Your race</h2>
+        <label>Your name (friends see this)
+          <input type="text" id="fName" maxlength="40" placeholder="Your name" autocomplete="given-name">
+        </label>
+        <label>Race name
+          <input type="text" id="fRace" maxlength="60" value="Half Marathon">
+        </label>
+        <div class="two">
+          <label>Distance
+            <select id="fKm">
+              <option value="21.0975" selected>21.1 km (half)</option>
+              <option value="42.195">42.2 km (full)</option>
+              <option value="10">10 km</option>
+              <option value="5">5 km</option>
+            </select>
+          </label>
+          <label>Target time (h:mm)
+            <input type="text" id="fTarget" inputmode="numeric" placeholder="2:15" maxlength="5">
+          </label>
+        </div>
+        <label>Backup live link: Strava Beacon or Google Maps (optional)
+          <input type="url" id="fGmaps" maxlength="200" placeholder="https://…">
+        </label>
+        <label class="toggle">Read cheers out loud <input type="checkbox" id="fVoice" checked></label>
+        <label class="toggle">Announce each kilometre <input type="checkbox" id="fKmVoice" checked></label>
+      </div>
+
+      <div class="card">
+        <div class="pills"><span class="pill" id="gpsPillSetup"><i></i><span>GPS off</span></span><span class="pill" id="netPillSetup"><i></i><span>Not shared yet</span></span></div>
+        <p class="muted small" id="gpsHelp">Tap below so the phone can find your position. Do this a few minutes before the start, outdoors.</p>
+        <button class="btn" type="button" id="btnReady">Turn on GPS &amp; tell friends I'm at the start</button>
+        <button class="btn go" type="button" id="btnStart">Start race</button>
+        <p class="muted small">Tap <b>Start race</b> when the gun goes. The race clock starts from that moment.</p>
+      </div>
+
+      <div class="card share">
+        <h2>Link for your friends</h2>
+        <code id="shareLink1"></code>
+        <button class="btn" type="button" data-copy="shareLink1">Copy friends' link</button>
+      </div>
+
+      <div class="card">
+        <h2>Before you run</h2>
+        <ol class="tips">
+          <li><b>Keep this page open with the screen on.</b> Phone browsers stop GPS when the screen locks. This page asks the phone to stay awake; on iPhone also set Settings › Display &amp; Brightness › Auto-Lock › Never for the race.</li>
+          <li><b>Turn brightness down</b> and close other apps. GPS with the screen on uses about 10–15% battery per hour.</li>
+          <li><b>Strava:</b> record the run in the Strava app as usual, in parallel with this page. Both can use GPS at once. If you have Strava Beacon (or Google Maps live location), paste its link above as a backup. Those keep working even if this page closes.</li>
+          <li>If the page closes or the phone restarts, just open this same link again. Your race resumes where it was.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- running / finished -->
+  <section id="vLive" hidden>
+    <div class="app" style="padding-top:0">
+      <div class="pills" style="justify-content:center">
+        <span class="pill" id="netPill"><i></i><span>Sharing</span></span>
+        <span class="pill" id="gpsPill"><i></i><span>GPS</span></span>
+        <span class="pill" id="wakePill"><i></i><span>Screen</span></span>
+      </div>
+      <div class="alert" id="liveAlert" hidden></div>
+
+      <div class="big"><div class="lbl" id="distLbl">Distance</div><div class="v"><span id="vDist">0.00</span><small>km</small></div></div>
+      <div class="clock" id="vClock">0:00</div>
+      <div class="grid4">
+        <div class="tile"><div class="lbl">Pace now</div><div class="v"><span id="vPace">–</span><small>/km</small></div></div>
+        <div class="tile"><div class="lbl">Avg pace</div><div class="v"><span id="vAvg">–</span><small>/km</small></div></div>
+        <div class="tile"><div class="lbl" id="vLastLbl">Last km</div><div class="v" id="vLast">–</div></div>
+        <div class="tile"><div class="lbl" id="vProjLbl">Projected</div><div class="v" id="vProj">–</div></div>
+      </div>
+      <p class="muted small" id="vSendInfo" style="text-align:center"></p>
+
+      <div id="liveCtl" class="app" style="padding-top:0">
+        <div class="row">
+          <button class="btn" type="button" id="btnSendNow">Send update now</button>
+          <button class="btn" type="button" id="btnVoice">Voice on</button>
+        </div>
+        <button class="btn finish" type="button" id="btnFinish">Finish race</button>
+      </div>
+
+      <div id="doneCtl" class="card" hidden>
+        <h2>Well run! 🏅</h2>
+        <p class="muted" id="doneInfo"></p>
+        <button class="btn" type="button" id="btnNewRace">Set up a new race</button>
+      </div>
+
+      <div class="card share">
+        <h2>Link for your friends</h2>
+        <code id="shareLink2"></code>
+        <button class="btn" type="button" data-copy="shareLink2">Copy friends' link</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast" hidden role="status" aria-live="polite"><span class="from" id="toastFrom"></span><span id="toastMsg"></span></div>
+
+<script src="common.js"></script>
+<script src="runner.js"></script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Race Day Live</title>
+<meta name="description" content="Follow the half marathon live: location on the map, distance, pace, splits and projected finish time.">
+<meta property="og:title" content="Follow my half marathon live">
+<meta property="og:description" content="Live location, distance, pace, km splits and projected finish time. Send a cheer and I'll hear it while I run.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#f2f4f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c1018" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff5a1f'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='14' text-anchor='middle' fill='white'%3E21%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <div class="ident">
+      <div class="eyebrow" id="raceName">Half Marathon</div>
+      <h1 id="runnerName">Live tracker</h1>
+    </div>
+    <div class="status" id="status" data-s="wait"><span class="dot"></span><span id="statusText">Connecting…</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="hero" aria-live="polite">
+    <div class="bigdist">
+      <span class="num" id="dist">0.00</span><span class="unit">km</span>
+      <span class="of">of <span id="raceKm">21.1</span> km</span>
+    </div>
+    <div class="course" id="course" aria-hidden="true">
+      <div class="course-track"><div class="course-fill" id="courseFill"></div><div class="course-dot" id="courseDot"></div></div>
+      <div class="course-ticks" id="courseTicks"></div>
+    </div>
+    <p class="updated" id="updated">Looking for the runner…</p>
+  </section>
+
+  <section class="stats" id="stats">
+    <div class="stat"><div class="lbl">Race clock</div><div class="val" id="sClock">–</div><div class="sub" id="sClockSub">&nbsp;</div></div>
+    <div class="stat"><div class="lbl">Pace right now</div><div class="val"><span id="sPace">–</span><small>/km</small></div><div class="sub" id="sPaceSub">last ~90 seconds</div></div>
+    <div class="stat"><div class="lbl">Average pace</div><div class="val"><span id="sAvg">–</span><small>/km</small></div><div class="sub" id="sAvgSub">&nbsp;</div></div>
+    <div class="stat key"><div class="lbl" id="sProjLbl">Projected finish</div><div class="val" id="sProj">–</div><div class="sub" id="sProjSub">&nbsp;</div></div>
+    <div class="stat"><div class="lbl">Still to go</div><div class="val"><span id="sLeft">–</span><small>km</small></div><div class="sub" id="sLeftSub">&nbsp;</div></div>
+    <div class="stat"><div class="lbl">Last full km</div><div class="val" id="sLast">–</div><div class="sub" id="sLastSub">&nbsp;</div></div>
+    <div class="stat"><div class="lbl">Phone battery</div><div class="val" id="sBatt">–</div><div class="sub" id="sBattSub">&nbsp;</div></div>
+    <div class="stat"><div class="lbl">GPS signal</div><div class="val" id="sGps">–</div><div class="sub" id="sGpsSub">&nbsp;</div></div>
+  </section>
+
+  <section class="mapcard">
+    <div id="map" role="region" aria-label="Map with the runner's route and position"></div>
+    <div class="maptools">
+      <button type="button" id="btnFollow" class="chip on">Following runner</button>
+      <button type="button" id="btnFit" class="chip">Show whole route</button>
+      <a id="lnkGmaps" class="chip" href="#" target="_blank" rel="noopener" hidden>Open in Google Maps</a>
+      <a id="lnkBackup" class="chip alt" href="#" target="_blank" rel="noopener" hidden>Backup live location</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h"><h2>Pace through the race</h2><span class="hint" id="paceHint">faster is higher</span></div>
+    <div id="paceWrap" class="chartwrap"><p class="empty">The pace chart fills in once the runner has covered half a kilometre.</p></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h"><h2>Kilometre splits</h2><span class="hint" id="splitHint"></span></div>
+    <div class="tablewrap"><table class="splits" id="splits"><thead><tr><th>Km</th><th>Split</th><th class="barcol">Compared with average</th><th>Total</th></tr></thead><tbody id="splitsBody"><tr><td colspan="4" class="empty">Splits appear after each full kilometre.</td></tr></tbody></table></div>
+  </section>
+
+  <section class="panel cheers">
+    <div class="panel-h"><h2>Send a cheer</h2></div>
+    <p class="hint-p" id="cheerNote">Your message is read out loud on the runner's phone while they run.</p>
+    <form id="cheerForm" autocomplete="off">
+      <div class="quick" id="quick">
+        <button type="button" data-q="You've got this! 💪">You've got this! 💪</button>
+        <button type="button" data-q="Keep that pace, looking strong!">Looking strong!</button>
+        <button type="button" data-q="Almost there, push to the finish! 🏁">Almost there! 🏁</button>
+        <button type="button" data-q="So proud of you! ❤️">So proud of you ❤️</button>
+      </div>
+      <div class="row">
+        <input id="cheerFrom" maxlength="30" placeholder="Your name" aria-label="Your name">
+        <input id="cheerMsg" maxlength="140" placeholder="Write a cheer…" aria-label="Cheer message">
+        <button type="submit" id="cheerSend" class="primary">Send</button>
+      </div>
+      <p class="formmsg" id="cheerStatus" role="status"></p>
+    </form>
+    <ul class="feed" id="feed"></ul>
+  </section>
+
+  <footer class="foot">
+    <p id="footNote">This page updates by itself. Keep it open; there's no need to refresh.</p>
+    <p class="fine">Distances come from the runner's phone GPS and can differ slightly from the official course. Map © OpenStreetMap contributors.</p>
+  </footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="common.js"></script>
+<script src="viewer.js"></script>
+</body>
+</html>
