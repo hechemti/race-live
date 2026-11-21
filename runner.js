@@ -30,6 +30,7 @@
   const base = location.href.replace(/#.*$/, '').replace(/run\.html.*$/, '');
   const friendsLink = base + '#t=' + topic;
   $('shareLink1').textContent = friendsLink;
+  $('lnkOtSetup').href = 'owntracks.html#t=' + topic;
   $('shareLink2').textContent = friendsLink;
   document.querySelectorAll('[data-copy]').forEach((b) => {
     b.addEventListener('click', async () => {
@@ -50,6 +51,7 @@
     return {
       rid: RL.randomId(10), name: prev ? prev.name : '', race: prev ? prev.race : 'Half Marathon', km: prev ? prev.km : RL.HALF_KM,
       tg: prev ? prev.tg : 0, g: prev ? prev.g : '', voice: prev ? prev.voice : true, kmVoice: prev ? prev.kmVoice : true,
+      ot: prev ? !!prev.ot : false,
       status: 'setup', st: 0, ft: 0, dist: 0, track: [], splits: [],
       seq: 0, sentIdx: 0, sentCount: 0, readySent: false, finSent: false,
     };
@@ -83,6 +85,9 @@
   let wake = null;
   let battery = null;
   let finishArmed = 0;
+  let quietKm = false;        // no voice while back-filling OwnTracks points
+  let otLastSeen = 0;         // server time of the newest OwnTracks location for this race
+  let otChecked = false;
 
   /* ---------- GPS ---------- */
   function startGPS() {
@@ -191,7 +196,13 @@
     return p > 150 && p < 1800 ? Math.round(p) : null;
   }
 
-  function avgPace() { return S.dist >= 300 ? elapsed() / (S.dist / 1000) : null; }
+  function avgPace() {
+    if (S.dist < 300) return null;
+    // time of the last recorded point, so a gap since the last OwnTracks update doesn't skew it
+    const last = S.track[S.track.length - 1];
+    const t = S.status === 'running' && last ? last[2] : elapsed();
+    return t > 0 ? t / (S.dist / 1000) : null;
+  }
 
   /* ---------- voice ---------- */
   const synth = window.speechSynthesis;
@@ -209,7 +220,7 @@
     return parts.join(' ') || '0 seconds';
   }
   function announceKm(k, split, total) {
-    if (!S.kmVoice) return;
+    if (!S.kmVoice || quietKm) return;
     say(`Kilometre ${k}. Split ${spokenDur(split)}. Total time ${spokenDur(total)}.`);
   }
 
@@ -240,6 +251,7 @@
   // ntfy.sh allows 250 messages a day per network address. Spread them over the expected race time.
   function computeInterval() {
     if (SIM) return 6;
+    if (S.ot) return 300;
     const target = S.tg || DEFAULT_TARGET;
     const left = Math.max(target - elapsed(), 25 * 60) + 25 * 60;
     const usable = Math.max(1, remainingMsgs() - 10);
@@ -314,6 +326,39 @@
   setInterval(() => maybeSend(false), 1000);
   window.addEventListener('online', () => { retryAt = 0; maybeSend(true); });
 
+  /* ---------- OwnTracks (background tracking while the phone is locked) ---------- */
+  function openOwnTracks(monitoring) {
+    if (SIM || !S.ot) return;
+    try { location.href = RL.ownTracksLink(topic, monitoring); } catch (e) { /* ignore */ }
+  }
+  let backfilling = false;
+  async function backfillOt() {
+    if (!S.ot || SIM || S.status !== 'running' || backfilling) return;
+    backfilling = true;
+    try {
+      const msgs = await RL.poll(topic, String(Math.floor(S.st / 1000) - 5));
+      const pts = [];
+      for (const m of msgs) {
+        let o;
+        try { o = JSON.parse(m.message); } catch (e) { continue; }
+        if (!o || o._type !== 'location' || !isFinite(+o.lat) || !isFinite(+o.lon) || !isFinite(+o.tst)) continue;
+        if (+o.tst * 1000 < S.st - 2000) continue;
+        otLastSeen = Math.max(otLastSeen, m.time);
+        pts.push({ lat: +o.lat, lon: +o.lon, acc: +o.acc > 0 ? +o.acc : 30, t: Math.min(+o.tst * 1000, Date.now()) });
+      }
+      otChecked = true;
+      pts.sort((a, b) => a.t - b.t);
+      quietKm = true;
+      for (const c of pts) {
+        if (S.status !== 'running') break;
+        const lastTs = S.track.length ? S.track[S.track.length - 1][2] : -1;
+        if ((c.t - S.st) / 1000 > lastTs + 1) addPoint(c);
+      }
+    } catch (e) { /* offline: try again later */ }
+    finally { quietKm = false; backfilling = false; render(); }
+  }
+  setInterval(() => { if (document.visibilityState === 'visible') backfillOt(); }, 20000);
+
   /* ---------- cheers from friends ---------- */
   let toastT = null;
   function showCheer(from, msg) {
@@ -370,6 +415,7 @@
     $('fGmaps').value = S.g || '';
     $('fVoice').checked = S.voice !== false;
     $('fKmVoice').checked = S.kmVoice !== false;
+    $('fOt').checked = !!S.ot;
   }
   function readForm() {
     S.name = $('fName').value.trim().slice(0, 40);
@@ -380,9 +426,10 @@
     S.g = /^https:\/\/\S+$/.test(g) ? g.slice(0, 200) : '';
     S.voice = $('fVoice').checked;
     S.kmVoice = $('fKmVoice').checked;
+    S.ot = $('fOt').checked;
     save(true);
   }
-  ['fName', 'fRace', 'fKm', 'fTarget', 'fGmaps', 'fVoice', 'fKmVoice'].forEach((id) => $(id).addEventListener('change', () => { if (S.status === 'setup' || S.status === 'ready') readForm(); }));
+  ['fName', 'fRace', 'fKm', 'fTarget', 'fGmaps', 'fVoice', 'fKmVoice', 'fOt'].forEach((id) => $(id).addEventListener('change', () => { if (S.status === 'setup' || S.status === 'ready') readForm(); }));
 
   $('btnReady').addEventListener('click', () => {
     readForm();
@@ -408,8 +455,11 @@
     refreshBudget();
     say('Race started. Have a great run!');
     lastSentAt = 0;
-    maybeSend(true);
+    const sent = maybeSend(true);
     render();
+    if (S.ot && !SIM) {
+      Promise.race([sent, new Promise((r) => setTimeout(r, 4000))]).then(() => setTimeout(() => openOwnTracks(2), 600));
+    }
   });
 
   /* ---------- live controls ---------- */
@@ -419,7 +469,7 @@
     if (S.voice) say('Voice on.'); else if (synth) synth.cancel();
     render();
   });
-  $('btnFinish').addEventListener('click', () => {
+  $('btnFinish').addEventListener('click', async () => {
     const b = $('btnFinish');
     if (Date.now() - finishArmed > 4000) {
       finishArmed = Date.now();
@@ -428,9 +478,13 @@
       return;
     }
     finishArmed = 0;
+    const ftNow = now();
+    b.textContent = 'Finishing…';
+    if (S.ot) await Promise.race([backfillOt(), new Promise((r) => setTimeout(r, 4000))]);
     if (cur && Date.now() - lastFixAt < 15000) addPoint(cur);
     S.status = 'finished';
-    S.ft = now();
+    S.ft = ftNow;
+    b.classList.remove('armed'); b.textContent = 'Finish race';
     S.finSent = false;
     save(true);
     retryAt = 0;
@@ -439,6 +493,7 @@
     stopGPS();
     if (wake) { try { wake.release(); } catch (e) { /* ignore */ } }
     render();
+    if (S.ot && !SIM) setTimeout(() => openOwnTracks(-1), 2500);
   });
   let newArmed = 0;
   $('btnNewRace').addEventListener('click', () => {
@@ -454,7 +509,7 @@
     if (S.status === 'running' || S.status === 'ready') {
       keepAwake();
       if (Date.now() - lastFixAt > 10000) startGPS();
-      if (S.status === 'running' && Date.now() - lastSentAt > 15000) { retryAt = 0; maybeSend(true); }
+      if (S.status === 'running') backfillOt().then(() => { if (Date.now() - lastSentAt > 15000) { retryAt = 0; maybeSend(true); } });
     }
   });
 
@@ -506,7 +561,11 @@
     // pills
     const [gc, gt] = running ? gpsState() : ['', 'GPS off'];
     setPill($('gpsPill'), gc, gt);
-    if (running) setPill($('wakePill'), wake ? 'good' : 'warn', wake ? 'Screen stays on' : 'Screen may sleep');
+    if (running && S.ot) {
+      const ago = otLastSeen ? Date.now() / 1000 - otLastSeen : null;
+      if (ago != null && ago < 240) setPill($('wakePill'), 'good', 'OwnTracks ✓ ' + RL.fmtAgo(ago));
+      else setPill($('wakePill'), otChecked ? 'bad' : 'warn', otChecked ? (ago == null ? 'OwnTracks: nothing yet' : 'OwnTracks quiet ' + RL.fmtAgo(ago)) : 'Checking OwnTracks…');
+    } else if (running) setPill($('wakePill'), wake ? 'good' : 'warn', wake ? 'Screen stays on' : 'Screen may sleep');
     else setPill($('wakePill'), '', 'Done');
     const since = lastSentAt ? (Date.now() - lastSentAt) / 1000 : null;
     if (limitHit) setPill($('netPill'), 'bad', 'Daily limit hit');
@@ -531,6 +590,8 @@
       if (gpsErr) { msg = gpsErr; bad = true; }
       else if (limitHit) { msg = 'The free relay\'s daily limit was reached for this network. Retrying every 2 minutes; your friends see your last position. Your backup live link (if you added one) still works.'; bad = true; }
       else if (S.dist >= S.km * 1000) msg = `You've passed ${Math.round(S.km * 10) / 10} km on GPS. Tap Finish race when you cross the line.`;
+      else if (S.ot && otChecked && (!otLastSeen || Date.now() / 1000 - otLastSeen > 240) && elapsed() > 90) { msg = 'No locations from OwnTracks yet. Open OwnTracks and set it to Move (tap here to switch it). Until then, keep this screen on.'; bad = true; }
+      else if (S.ot) msg = 'OwnTracks is sharing your location. You can lock your phone and play music. Unlock and open this page any time to see your stats.';
       else if (!wake && 'wakeLock' in navigator) msg = 'Keep the screen on: tap here so the phone doesn\'t lock and stop GPS.';
     }
     al.hidden = !msg;
@@ -538,13 +599,16 @@
     al.textContent = msg;
     $('btnVoice').textContent = S.voice ? 'Voice on' : 'Voice off';
   }
-  $('liveAlert').addEventListener('click', () => keepAwake());
+  $('liveAlert').addEventListener('click', () => {
+    if (S.ot && $('liveAlert').classList.contains('bad') && !limitHit && !gpsErr) openOwnTracks(2);
+    else keepAwake();
+  });
 
   /* ---------- boot ---------- */
   fillForm();
   if (S.status === 'running') {
     // Resumed after a reload: keep going from saved state.
-    startGPS(); keepAwake(); listenCheers(); refreshBudget();
+    startGPS(); keepAwake(); listenCheers(); refreshBudget(); backfillOt();
   } else if (S.status === 'ready') {
     startGPS(); keepAwake(); listenCheers();
   }

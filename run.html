@@ -93,6 +93,14 @@ ol.tips b { color: var(--ink); }
       </div>
 
       <div class="card">
+        <h2>Lock your phone during the race</h2>
+        <p class="muted small">A web page stops getting GPS when the phone locks. The free OwnTracks app keeps sending your location in the background, even with music playing. Set it up once (about 3 minutes):</p>
+        <a class="btn" id="lnkOtSetup" href="owntracks.html" style="text-align:center;text-decoration:none">Set up OwnTracks</a>
+        <label class="toggle">OwnTracks is set up on this phone <input type="checkbox" id="fOt"></label>
+        <p class="muted small">When this is ticked, <b>Start race</b> switches OwnTracks on and <b>Finish race</b> switches it off. Your phone asks to open OwnTracks each time: tap <b>Open</b>, then come back here.</p>
+      </div>
+
+      <div class="card">
         <h2>Your race</h2>
         <label>Your name (friends see this)
           <input type="text" id="fName" maxlength="40" placeholder="Your name" autocomplete="given-name">
@@ -137,7 +145,7 @@ ol.tips b { color: var(--ink); }
       <div class="card">
         <h2>Before you run</h2>
         <ol class="tips">
-          <li><b>Keep this page open with the screen on.</b> Phone browsers stop GPS when the screen locks. This page asks the phone to stay awake; on iPhone also set Settings › Display &amp; Brightness › Auto-Lock › Never for the race.</li>
+          <li><b>With OwnTracks ticked:</b> after Start you can lock the phone and play music. Without OwnTracks, keep this page open with the screen on (iPhone: Settings › Display &amp; Brightness › Auto-Lock › Never).</li>
           <li><b>Turn brightness down</b> and close other apps. GPS with the screen on uses about 10–15% battery per hour.</li>
           <li><b>Strava:</b> record the run in the Strava app as usual, in parallel with this page. Both can use GPS at once. If you have Strava Beacon (or Google Maps live location), paste its link above as a backup. Those keep working even if this page closes.</li>
           <li>If the page closes or the phone restarts, just open this same link again. Your race resumes where it was.</li>

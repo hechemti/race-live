@@ -20,57 +20,159 @@
   };
 
   /* ---------- data in ---------- */
+  st.ot = []; // OwnTracks background locations
+
   function ingest(m) {
     if (!m || st.seen.has(m.id)) return false;
     st.seen.add(m.id);
     if (m.time >= st.lastTime) { st.lastTime = m.time; st.lastId = m.id; }
     let p;
     try { p = JSON.parse(m.message); } catch (e) { return false; }
-    if (!p || p.v !== 1 || typeof p.rid !== 'string') return false;
+    if (!p || typeof p !== 'object') return false;
+    if (p._type === 'location') {
+      // Sent by the OwnTracks app, which keeps running while the phone is locked.
+      const lat = +p.lat, lon = +p.lon, tst = +p.tst;
+      if (!isFinite(lat) || !isFinite(lon) || !isFinite(tst) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return false;
+      st.ot.push({ lat, lon, tst: Math.min(tst, m.time + 120), acc: isFinite(+p.acc) && +p.acc > 0 ? +p.acc : 30,
+        batt: typeof p.batt === 'number' ? p.batt : null, bs: p.bs, _time: m.time });
+      return true;
+    }
+    if (p.v !== 1 || typeof p.rid !== 'string') return false;
     p._time = m.time;
     st.payloads.push(p);
     return true;
   }
 
+  /* First point of the most recent unbroken stretch of OwnTracks points after `after`. */
+  function otSessionStart(sorted, after) {
+    const pts = sorted.filter((o) => o.tst >= after);
+    if (!pts.length) return null;
+    let i = pts.length - 1;
+    while (i > 0 && pts[i].tst - pts[i - 1].tst < 30 * 60) i--;
+    // Only count it as a race if the phone is actually moving (ignores a one-off test send).
+    let d = 0;
+    for (let k = i + 1; k < pts.length; k++) d += RL.hav([pts[k - 1].lat, pts[k - 1].lon], [pts[k].lat, pts[k].lon]);
+    if (pts.length - i < 4 || d < 300) return null;
+    return pts[i].tst;
+  }
+
   function rebuild() {
-    if (!st.payloads.length) { st.run = null; return; }
-    // The current race is the one with the most recent message.
-    let newest = st.payloads[0];
-    for (const p of st.payloads) if (p._time > newest._time) newest = p;
-    const ps = st.payloads.filter((p) => p.rid === newest.rid);
+    const otSorted = st.ot.slice().sort((a, b) => a.tst - b.tst);
+    const lastOtAll = otSorted[otSorted.length - 1] || null;
+    let latest = null, raw = [], startedAt = null, finAt = null;
 
-    // One payload per sequence number; a retried send carries a superset of points.
-    const bySeq = new Map();
-    for (const p of ps) {
-      const prev = bySeq.get(p.seq);
-      const n = (p.p || []).length, pn = prev ? (prev.p || []).length : -1;
-      if (!prev || n > pn || (n === pn && p._time > prev._time)) bySeq.set(p.seq, p);
+    if (st.payloads.length) {
+      // The current race is the one with the most recent message from the runner page.
+      let newest = st.payloads[0];
+      for (const p of st.payloads) if (p._time > newest._time) newest = p;
+      const ps = st.payloads.filter((p) => p.rid === newest.rid);
+      // One payload per sequence number; a retried send carries a superset of points.
+      const bySeq = new Map();
+      for (const p of ps) {
+        const prev = bySeq.get(p.seq);
+        const n = (p.p || []).length, pn = prev ? (prev.p || []).length : -1;
+        if (!prev || n > pn || (n === pn && p._time > prev._time)) bySeq.set(p.seq, p);
+      }
+      for (const sq of [...bySeq.keys()].sort((a, b) => a - b)) {
+        const p = bySeq.get(sq);
+        if (!latest || sq > latest.seq || (sq === latest.seq && p._time >= latest._time)) latest = p;
+        for (const pt of p.p || []) if (Array.isArray(pt) && pt.length >= 3) raw.push(pt);
+      }
+      const fin = ps.find((p) => p.k === 'f');
+      if (fin && latest.k !== 'f') latest = fin;
+      const started = ps.filter((p) => p.k !== 's' && typeof p.el === 'number');
+      if (started.length) startedAt = Math.min(...started.map((p) => p._time - p.el));
+      if (latest.k === 'f' && startedAt != null) finAt = startedAt + latest.el;
     }
-    const seqs = [...bySeq.keys()].sort((a, b) => a - b);
-    let latest = null;
-    const raw = [];
-    for (const s of seqs) {
-      const p = bySeq.get(s);
-      if (!latest || s > latest.seq || (s === latest.seq && p._time >= latest._time)) latest = p;
-      for (const pt of p.p || []) if (Array.isArray(pt) && pt.length >= 3) raw.push(pt);
-    }
-    // a "finished" payload always wins
-    const fin = ps.find((p) => p.k === 'f');
-    if (fin && latest.k !== 'f') latest = fin;
 
-    raw.sort((a, b) => a[2] - b[2]);
-    const track = [];
-    for (const pt of raw) {
+    // OwnTracks is running but Start was never tapped on the runner page: start from OwnTracks.
+    if (startedAt == null && lastOtAll && nowSec() - lastOtAll._time < 3 * 3600) {
+      const after = latest && latest.k === 's' ? latest._time - 600 : 0;
+      const s0 = otSessionStart(otSorted, after);
+      if (s0 != null) {
+        startedAt = s0;
+        latest = Object.assign({ v: 1, rid: 'ot', seq: 0, n: '', r: 'Half Marathon', km: RL.HALF_KM }, latest || {},
+          { k: 'u', el: 0, dist: 0, p: [], sp: [], pc: null, cur: null, iv: 0, _time: latest ? latest._time : s0 });
+        raw = [];
+      }
+    }
+    if (!latest) { st.run = null; return; }
+
+    // OwnTracks points that belong to this race
+    const otPts = [];
+    let lastOt = null;
+    if (startedAt != null) {
+      for (const o of otSorted) {
+        if (o.tst < startedAt - 2 || o.tst > startedAt + 8 * 3600) continue;
+        if (finAt != null && o.tst > finAt + 5) continue;
+        otPts.push([o.lat, o.lon, Math.max(0, Math.round(o.tst - startedAt)), Math.round(o.acc)]);
+        if (!lastOt || o.tst >= lastOt.tst) lastOt = o;
+      }
+    }
+    const hasOt = otPts.length > 0;
+
+    // Merge both sources in time order and drop GPS glitches.
+    const merged = raw.concat(otPts).sort((a, b) => a[2] - b[2]);
+    const track = [], cum = [];
+    let streak = 0;
+    for (const pt of merged) {
+      if (pt[3] != null && pt[3] > 60) continue;
       const last = track[track.length - 1];
-      if (last && last[2] === pt[2] && last[0] === pt[0] && last[1] === pt[1]) continue;
+      if (!last) { track.push(pt); cum.push(0); continue; }
+      if (last[2] === pt[2] && last[0] === pt[0] && last[1] === pt[1]) continue;
+      if (pt[4]) { track.push(pt); cum.push(cum[cum.length - 1]); streak = 0; continue; }
+      const d = RL.hav(last, pt), dt = Math.max(1, pt[2] - last[2]);
+      if (d < 4) continue;
+      if (d / dt > (dt > 60 ? 7 : 9)) {
+        if (++streak >= 3) { track.push([pt[0], pt[1], pt[2], pt[3], 1]); cum.push(cum[cum.length - 1]); streak = 0; }
+        continue;
+      }
+      streak = 0;
       track.push(pt);
+      cum.push(cum[cum.length - 1] + d);
     }
-    // cumulative distance along the shared track
-    const cum = [0];
-    for (let i = 1; i < track.length; i++) cum.push(cum[i - 1] + (track[i][4] ? 0 : RL.hav(track[i - 1], track[i])));
+    const cumLast = cum.length ? cum[cum.length - 1] : 0;
+    const lastTs = track.length ? track[track.length - 1][2] : 0;
 
-    const firstMsg = ps.reduce((a, b) => (a._time < b._time ? a : b));
-    st.run = { latest, track, cum, startedAt: latest.el != null && latest.k !== 's' ? latest._time - latest.el : null, firstTime: firstMsg._time };
+    // km splits from the merged track
+    const splits = [];
+    let next = 1000, prevT = 0;
+    for (let i = 1; i < track.length; i++) {
+      while (cum[i] >= next) {
+        const seg = cum[i] - cum[i - 1] || 1, f = (next - cum[i - 1]) / seg;
+        const t = track[i - 1][2] + f * (track[i][2] - track[i - 1][2]);
+        splits.push(t - prevT); prevT = t; next += 1000;
+      }
+    }
+
+    // Use whichever source has the fresher fix for each figure.
+    const runnerFixAt = Array.isArray(latest.cur) ? latest._time - (latest.cur[3] || 0) : -1;
+    const otNewer = hasOt && lastOt.tst >= runnerFixAt - 5;
+    let pc = latest.pc || null;
+    if (hasOt && (otNewer || !pc)) {
+      pc = null;
+      let j = track.length - 1;
+      while (j > 0 && lastTs - track[j - 1][2] <= 100) j--;
+      if (j > 0 && lastTs - track[j][2] < 40) j--;
+      const span = lastTs - (track[j] ? track[j][2] : lastTs), dd = cumLast - (cum[j] || 0);
+      if (span >= 40 && span <= 400 && dd > 50 && nowSec() - lastOt._time < 150) {
+        const p = span / (dd / 1000);
+        if (p > 150 && p < 1800) pc = Math.round(p);
+      }
+    }
+
+    const firstMsg = st.payloads.length ? st.payloads.reduce((a, b) => (a._time < b._time ? a : b)) : latest;
+    st.run = {
+      latest, track, cum, startedAt, finAt, hasOt,
+      dist: hasOt ? Math.max(cumLast, latest.dist || 0) : (latest.dist || 0),
+      splits: hasOt ? splits : (Array.isArray(latest.sp) ? latest.sp : []),
+      dataEl: hasOt && cumLast >= (latest.dist || 0) ? lastTs : (latest.k === 's' ? 0 : (latest.el || 0)),
+      lastUpdate: Math.max(latest._time, lastOt ? lastOt._time : 0),
+      cur: otNewer ? [lastOt.lat, lastOt.lon, Math.round(lastOt.acc)] : latest.cur,
+      batt: hasOt && lastOt.batt != null && (otNewer || typeof latest.b !== 'number') ? lastOt.batt : latest.b,
+      charging: hasOt && lastOt.batt != null && (otNewer || typeof latest.b !== 'number') ? lastOt.bs === 2 : !!latest.c,
+      pc, otNewer, firstTime: firstMsg._time,
+    };
   }
 
   /* ---------- derived numbers ---------- */
@@ -81,18 +183,18 @@
     if (!r) return null;
     const L = r.latest;
     const km = L.km || RL.HALF_KM;
-    const age = nowSec() - L._time;
+    const age = nowSec() - r.lastUpdate;
     let mode = 'live';
     if (L.k === 's') mode = 'ready';
     else if (L.k === 'f') mode = 'done';
     else if (age > STALE_SEC) mode = 'lost';
-    const el = mode === 'done' ? L.el : mode === 'ready' ? null : L.el + Math.max(0, age);
-    const dist = L.dist || 0;
-    const avg = dist >= 300 && L.el > 0 ? L.el / (dist / 1000) : null;
+    const el = mode === 'done' ? L.el : (mode === 'ready' || r.startedAt == null) ? null : Math.max(0, nowSec() - r.startedAt);
+    const dist = r.dist;
+    const avg = dist >= 300 && r.dataEl > 0 ? r.dataEl / (dist / 1000) : null;
     let proj = null;
     if (mode === 'done') proj = L.el;
     else if (avg && dist >= 400) proj = avg * km;
-    return { L, km, age, mode, el, dist, avg, proj };
+    return { L, r, km, age, mode, el, dist, avg, proj, sp: r.splits, cur: r.cur, pc: r.pc, batt: r.batt, charging: r.charging };
   }
 
   /* ---------- rendering ---------- */
@@ -149,7 +251,7 @@
     $('courseFill').style.width = frac * 100 + '%';
     $('courseDot').style.left = frac * 100 + '%';
 
-    const ivTxt = L.iv ? ` · updates about every ${L.iv} s` : '';
+    const ivTxt = st.run.hasOt ? ' · updates about every minute' : (L.iv ? ` · updates about every ${L.iv} s` : '');
     if (mode === 'ready') {
       setStatus('ready', 'At the start');
       $('updated').textContent = `${name} is at the start line and ready to go. Updated ${RL.fmtAgo(age)}.`;
@@ -158,7 +260,7 @@
       $('updated').textContent = `Updated ${RL.fmtAgo(age)}${ivTxt}`;
     } else if (mode === 'lost') {
       setStatus('lost', 'No signal');
-      $('updated').textContent = `Last update ${RL.fmtAgo(age)}. The phone may have lost signal or its screen turned off. The race clock keeps running and the page will catch up on its own.`;
+      $('updated').textContent = `Last update ${RL.fmtAgo(age)}. The phone is probably out of mobile signal for a moment. The race clock keeps running and the page catches up on its own.`;
     } else {
       setStatus('done', 'Finished');
       $('updated').textContent = `Finished in ${RL.fmtDur(L.el)}${st.run.startedAt ? ' at ' + RL.fmtClock((st.run.startedAt + L.el) * 1000) : ''}. 🎉`;
@@ -169,9 +271,9 @@
     $('sClockSub').textContent = st.run.startedAt ? 'started ' + RL.fmtClock(st.run.startedAt * 1000) : (mode === 'ready' ? 'waiting for the start' : ' ');
 
     // pace now
-    const pcOk = mode === 'live' && L.pc;
-    $('sPace').textContent = pcOk ? RL.fmtPace(L.pc) : '–';
-    $('sPaceSub').textContent = mode === 'live' ? (L.pc ? 'last ~90 seconds' : 'standing or walking') : mode === 'done' ? 'race over' : ' ';
+    const pcOk = mode === 'live' && v.pc;
+    $('sPace').textContent = pcOk ? RL.fmtPace(v.pc) : '–';
+    $('sPaceSub').textContent = mode === 'live' ? (v.pc ? 'last minute or two' : 'standing or walking') : mode === 'done' ? 'race over' : ' ';
 
     $('sAvg').textContent = avg ? RL.fmtPace(avg) : '–';
     $('sAvgSub').textContent = avg ? `${(3600 / avg).toFixed(1)} km/h` : ' ';
@@ -194,22 +296,22 @@
     $('sLeft').textContent = RL.fmtKm(left);
     $('sLeftSub').textContent = mode === 'done' ? 'done!' : (avg && left > 0 ? `~${RL.fmtDur(avg * left / 1000)} at avg pace` : ' ');
 
-    const sp = Array.isArray(L.sp) ? L.sp : [];
+    const sp = Array.isArray(v.sp) ? v.sp : [];
     if (sp.length) {
       $('sLast').textContent = RL.fmtPace(sp[sp.length - 1]);
       $('sLastSub').textContent = `km ${sp.length}`;
     } else { $('sLast').textContent = '–'; $('sLastSub').textContent = 'after km 1'; }
 
     const b = $('sBatt');
-    if (typeof L.b === 'number') {
-      b.textContent = Math.round(L.b) + '%';
-      b.className = 'val' + (L.b < 15 ? ' bad' : L.b < 30 ? ' warn' : '');
-      $('sBattSub').textContent = L.c ? 'charging' : ' ';
+    if (typeof v.batt === 'number') {
+      b.textContent = Math.round(v.batt) + '%';
+      b.className = 'val' + (v.batt < 15 ? ' bad' : v.batt < 30 ? ' warn' : '');
+      $('sBattSub').textContent = v.charging ? 'charging' : ' ';
     } else { b.textContent = '–'; b.className = 'val'; $('sBattSub').textContent = 'not shared by this phone'; }
 
     const g = $('sGps');
-    if (Array.isArray(L.cur)) {
-      const acc = L.cur[2];
+    if (Array.isArray(v.cur)) {
+      const acc = v.cur[2];
       g.textContent = acc <= 12 ? 'Strong' : acc <= 30 ? 'Good' : 'Weak';
       g.className = 'val' + (acc <= 12 ? ' good' : acc <= 30 ? '' : ' warn');
       $('sGpsSub').textContent = `±${acc} m`;
@@ -227,7 +329,7 @@
 
   function renderHeavy() {
     const v = view();
-    const key = v ? `${v.L.rid}:${v.L.seq}:${v.L._time}:${st.run.track.length}:${v.mode}` : 'none';
+    const key = v ? `${v.L.rid}:${v.L.seq}:${st.run.lastUpdate}:${st.run.track.length}:${v.mode}` : 'none';
     if (key === lastHeavyKey) return;
     lastHeavyKey = key;
     renderMap(v);
@@ -278,8 +380,8 @@
     const { track, cum } = st.run;
     const L_ = v.L;
     const latlngs = track.map((p) => [p[0], p[1]]);
-    let pos = Array.isArray(L_.cur) ? [L_.cur[0], L_.cur[1]] : latlngs.length ? latlngs[latlngs.length - 1] : null;
-    const acc = Array.isArray(L_.cur) ? L_.cur[2] : null;
+    let pos = Array.isArray(v.cur) ? [v.cur[0], v.cur[1]] : latlngs.length ? latlngs[latlngs.length - 1] : null;
+    const acc = Array.isArray(v.cur) ? v.cur[2] : null;
     gmapsTarget = pos;
     const gl = $('lnkGmaps');
     if (pos) { gl.href = `https://www.google.com/maps/search/?api=1&query=${pos[0]},${pos[1]}`; gl.hidden = false; } else gl.hidden = true;
@@ -331,7 +433,7 @@
   /* ---------- splits ---------- */
   function renderSplits(v) {
     const body = $('splitsBody');
-    const sp = v && Array.isArray(v.L.sp) ? v.L.sp.filter((x) => typeof x === 'number' && x > 0) : [];
+    const sp = v && Array.isArray(v.sp) ? v.sp.filter((x) => typeof x === 'number' && x > 0) : [];
     if (!sp.length) {
       body.innerHTML = '<tr><td colspan="4" class="empty">Splits appear after each full kilometre.</td></tr>';
       $('splitHint').textContent = '';

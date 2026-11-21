@@ -132,6 +132,32 @@
     return () => es.close();
   };
 
+  /* ---------- OwnTracks app setup ----------
+     OwnTracks keeps sending location while the phone is locked. It posts
+     {"_type":"location", ...} straight to the same ntfy topic. */
+  RL.ownTracksConfig = function (topic, monitoring) {
+    return {
+      _type: 'configuration',
+      mode: 3,                               // HTTP
+      url: `${RL.NTFY}/${topic}`,
+      auth: false,
+      cmd: false,
+      remoteConfiguration: false,
+      allowRemoteLocation: false,
+      monitoring: monitoring,                // -1 quiet, 2 move
+      locatorDisplacement: 150,              // metres between updates (about every 50 s while running)
+      locatorInterval: 60,
+      adapt: 0,                              // never drop out of move mode when standing still
+      ignoreInaccurateLocations: 0,
+      extendedData: true,
+      tid: 'ME',
+    };
+  };
+  RL.ownTracksLink = function (topic, monitoring) {
+    const json = JSON.stringify(RL.ownTracksConfig(topic, monitoring));
+    return 'owntracks:///config?inline=' + encodeURIComponent(btoa(json));
+  };
+
   /* ---------- synthetic course for demo / simulation ---------- */
   RL.makeCourse = function (center) {
     center = center || [15.3647, 75.124];
