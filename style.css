@@ -10,18 +10,20 @@
   --signal: #ff5a1f;
   --signal-ink: #ffffff;
   --route: #2453d4;
+  --love: #d6336c;
+  --love-soft: #fdecf2;
   --good: #11875d;
   --warn: #b7791f;
   --bad: #c2362b;
   --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
-  --body: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --body: 'Barlow', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --radius: 14px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0c1018; --surface: #151b26; --ink: #eef1f7; --muted: #98a2b4; --line: #263042; --soft: #1c2331;
-    --signal: #ff6a33; --route: #6f95ff; --good: #3cc48f; --warn: #e3a64a; --bad: #ff6b5e;
+    --signal: #ff6a33; --route: #6f95ff; --love: #ff6b9a; --love-soft: #2a1520; --good: #3cc48f; --warn: #e3a64a; --bad: #ff6b5e;
     color-scheme: dark;
   }
 }
@@ -95,7 +97,7 @@ main.wrap { display: grid; gap: 16px; padding-block: 16px 32px; }
 .course-ticks span::before { content: ''; display: block; width: 1px; height: 6px; margin: 0 auto 4px; background: var(--muted); opacity: .6; }
 .course-ticks span.minor { font-size: 0; }
 .course-ticks span.minor::before { height: 4px; opacity: .35; }
-.course-ticks span.fin { color: var(--ink); }
+.course-ticks span.fin { color: var(--ink); white-space: nowrap; }
 .updated { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
 
 /* ---------- stats ---------- */
@@ -181,3 +183,33 @@ table.splits { width: 100%; border-collapse: collapse; font-variant-numeric: tab
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- letter for Sonal ---------- */
+.letter { background: var(--surface); border: 1px solid color-mix(in srgb, var(--love) 45%, var(--line)); border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; }
+.letter-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.letter .to { font: 800 44px/0.95 var(--display); color: var(--love); text-transform: none; letter-spacing: 0; }
+.letter-count { font: 600 14px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.letter-note { margin: 0; font-size: 13px; color: var(--muted); font-style: italic; }
+.notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.note { padding: 12px 14px; border-radius: 12px; background: var(--love-soft); border-left: 3px solid var(--love); }
+.note .at { font: 700 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--love); margin-bottom: 6px; }
+.note p { margin: 0; font-size: 17px; line-height: 1.55; overflow-wrap: anywhere; }
+.note.new { animation: notein 1.2s ease-out; box-shadow: 0 0 0 2px color-mix(in srgb, var(--love) 45%, transparent); }
+@keyframes notein { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+.next-note { margin: 0; font-size: 14px; color: var(--muted); }
+.next-note:empty { display: none; }
+
+.note-toast {
+  position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: min(440px, calc(100% - 32px));
+  padding: 14px 16px; border: 0; border-radius: 14px; background: var(--love); color: #fff;
+  font: 600 16px/1.3 var(--body); text-align: left; box-shadow: 0 10px 30px rgb(0 0 0 / .3); cursor: pointer;
+}
+
+.celebrate { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 20px max(16px, env(safe-area-inset-right, 0px)) 20px max(16px, env(safe-area-inset-left, 0px)); background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+#hearts { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.cel-card { position: relative; width: min(420px, 100%); background: var(--surface); border: 1px solid color-mix(in srgb, var(--love) 50%, var(--line)); border-radius: 18px; padding: 22px; text-align: center; display: grid; gap: 8px; box-shadow: 0 20px 60px rgb(0 0 0 / .35); }
+.cel-card h2 { font-size: 30px; color: var(--love); }
+.cel-time { font: 800 64px/1 var(--display); font-variant-numeric: tabular-nums; }
+.cel-card p { margin: 0; color: var(--muted); }
+.cel-actions { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }

@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff5a1f'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='14' text-anchor='middle' fill='white'%3E21%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -41,6 +41,19 @@
       <div class="course-ticks" id="courseTicks"></div>
     </div>
     <p class="updated" id="updated">Looking for the runner…</p>
+  </section>
+
+  <section class="letter" id="letter" hidden>
+    <div class="letter-h">
+      <div>
+        <div class="eyebrow">For</div>
+        <h2 class="to" id="letterTo">Sonal</h2>
+      </div>
+      <span class="letter-count" id="letterCount"></span>
+    </div>
+    <p class="letter-note">Unedited. Spoken out loud and transcribed word for word, nothing polished.</p>
+    <ol class="notes" id="notes" aria-live="polite"></ol>
+    <p class="next-note" id="nextNote"></p>
   </section>
 
   <section class="stats" id="stats">
@@ -99,6 +112,22 @@
     <p class="fine">Distances come from the runner's phone GPS and can differ slightly from the official course. Map © OpenStreetMap contributors.</p>
   </footer>
 </main>
+
+<button type="button" class="note-toast" id="noteToast" hidden></button>
+
+<div class="celebrate" id="celebrate" hidden role="dialog" aria-modal="true" aria-labelledby="celTitle">
+  <canvas id="hearts" aria-hidden="true"></canvas>
+  <div class="cel-card">
+    <div class="eyebrow">Finish line</div>
+    <h2 id="celTitle">Crossed the finish line</h2>
+    <div class="cel-time" id="celTime"></div>
+    <p id="celText">The last note just unlocked.</p>
+    <div class="cel-actions">
+      <button type="button" class="primary" id="celRead">Read it</button>
+      <button type="button" class="chip" id="celClose">Close</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="common.js"></script>

@@ -228,7 +228,9 @@
     box.appendChild(f);
   }
 
-  function renderLight() {
+  function renderLight() { renderStats(); renderLetter(view()); }
+
+  function renderStats() {
     const v = view();
     if (!v) {
       setStatus('wait', st.loaded ? 'Not started' : 'Connecting…');
@@ -656,6 +658,137 @@
     }, 3000);
   }
 
+  /* ---------- letter for Sonal (encrypted; only this link's code can open it) ---------- */
+  let letter = null, shownNotes = -1, celebrated = false, toastT = null;
+
+  async function loadLetter() {
+    if (!topic || !window.crypto || !crypto.subtle) return;
+    try {
+      const r = await fetch('letter.json', { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json();
+      const b = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0));
+      const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(topic), 'PBKDF2', false, ['deriveKey']);
+      const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b(j.salt), iterations: j.iter, hash: 'SHA-256' },
+        base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b(j.iv) }, key, b(j.ct));
+      letter = JSON.parse(new TextDecoder().decode(pt));
+      $('letterTo').textContent = letter.to || '';
+      $('letter').hidden = false;
+      renderLetter(view());
+    } catch (e) { /* not this link's letter */ }
+  }
+
+  function noteUnlocked(n, v) {
+    if (n.at === 0) return true;
+    if (!v || v.mode === 'ready') return false;
+    if (v.mode === 'done') return true;
+    if (v.el != null && v.el > 4 * 3600) return true; // never leave notes locked if the finish tap is missed
+    return typeof n.at === 'number' && v.dist >= n.at * 1000;
+  }
+  function atLabel(n) { return n.at === 0 ? 'At the start' : n.at === 'finish' ? 'Finish line' : `Km ${n.at}`; }
+
+  function renderLetter(v) {
+    if (!letter || !st.loaded) return;
+    const notes = letter.notes || [];
+    const open = notes.filter((n) => noteUnlocked(n, v));
+    $('letterCount').textContent = `${open.length} of ${notes.length} notes`;
+    const next = notes.find((n) => !noteUnlocked(n, v));
+    const runner = v ? (v.L.n || 'He') : 'He';
+    if (!next) $('nextNote').textContent = '';
+    else if (next.at === 'finish') $('nextNote').textContent = 'The last note unlocks at the finish line.';
+    else {
+      const left = v ? next.at * 1000 - v.dist : next.at * 1000;
+      $('nextNote').textContent = `Next note unlocks at km ${next.at}` + (v && v.mode !== 'ready' && left > 0 ? ` (${RL.fmtKm(left)} km away)` : '') + '.';
+    }
+    if (open.length !== shownNotes) {
+      const first = shownNotes < 0;
+      const ol = $('notes');
+      ol.textContent = '';
+      open.forEach((n, i) => {
+        const li = document.createElement('li');
+        li.className = 'note' + (!first && i >= shownNotes ? ' new' : '');
+        const at = document.createElement('div'); at.className = 'at'; at.textContent = atLabel(n);
+        const p = document.createElement('p'); p.textContent = n.text;
+        li.append(at, p);
+        ol.appendChild(li);
+      });
+      if (!first && open.length > shownNotes) {
+        const n = open[open.length - 1];
+        showNoteToast(n.at === 'finish' ? `${runner} finished. The last note is open 💌` : `New note from ${runner} at ${atLabel(n).toLowerCase()} 💌`);
+        try { if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate([120, 80, 120]); } catch (e) { /* ignore */ }
+      }
+      shownNotes = open.length;
+    }
+    if (v && v.mode === 'done' && !celebrated) celebrate(v);
+  }
+
+  function showNoteToast(text) {
+    const t = $('noteToast');
+    t.textContent = text;
+    t.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(() => (t.hidden = true), 12000);
+  }
+  $('noteToast').addEventListener('click', () => {
+    $('noteToast').hidden = true;
+    const last = $('notes').lastElementChild;
+    (last || $('letter')).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  function celebrate(v) {
+    celebrated = true;
+    if (DEMO) return;
+    $('celTitle').textContent = `${v.L.n || 'He'} crossed the finish line`;
+    $('celTime').textContent = RL.fmtDur(v.L.el);
+    $('celText').textContent = letter ? 'The last note just unlocked.' : '';
+    $('celRead').hidden = !letter;
+    $('celebrate').hidden = false;
+    if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) hearts();
+  }
+  function closeCelebrate() { $('celebrate').hidden = true; }
+  $('celClose').addEventListener('click', closeCelebrate);
+  $('celRead').addEventListener('click', () => {
+    closeCelebrate();
+    const last = $('notes').lastElementChild;
+    (last || $('letter')).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  function hearts() {
+    const c = $('hearts'), ctx = c.getContext('2d');
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = innerWidth, Hh = innerHeight;
+    c.width = W * dpr; c.height = Hh * dpr; ctx.scale(dpr, dpr);
+    const css = getComputedStyle(document.documentElement);
+    const cols = [css.getPropertyValue('--love').trim() || '#d6336c', '#ff8fb1', '#ff5a1f', '#ffd1dc'];
+    const ps = Array.from({ length: 70 }, () => ({
+      x: Math.random() * W, y: -Math.random() * Hh, s: 12 + Math.random() * 24, vy: 1.2 + Math.random() * 2.6,
+      ph: Math.random() * 6.28, col: cols[Math.floor(Math.random() * cols.length)],
+    }));
+    const heart = (x, y, s) => {
+      ctx.beginPath();
+      ctx.moveTo(x, y + s * 0.3);
+      ctx.bezierCurveTo(x, y, x - s * 0.5, y, x - s * 0.5, y + s * 0.3);
+      ctx.bezierCurveTo(x - s * 0.5, y + s * 0.6, x, y + s * 0.8, x, y + s);
+      ctx.bezierCurveTo(x, y + s * 0.8, x + s * 0.5, y + s * 0.6, x + s * 0.5, y + s * 0.3);
+      ctx.bezierCurveTo(x + s * 0.5, y, x, y, x, y + s * 0.3);
+      ctx.fill();
+    };
+    const t0 = performance.now();
+    (function frame(t) {
+      const k = (t - t0) / 1000;
+      ctx.clearRect(0, 0, W, Hh);
+      ctx.globalAlpha = k > 6 ? Math.max(0, 1 - (k - 6) / 2) : 1;
+      for (const p of ps) {
+        p.y += p.vy; p.ph += 0.03;
+        if (p.y > Hh + 40 && k < 5) p.y = -40;
+        ctx.fillStyle = p.col;
+        heart(p.x + Math.sin(p.ph) * 18, p.y, p.s);
+      }
+      if (k < 8) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, Hh);
+    })(t0);
+  }
+
   /* ---------- boot ---------- */
   $('btnFollow').addEventListener('click', () => setFollow(!follow));
   $('btnFit').addEventListener('click', () => {
@@ -668,6 +801,7 @@
   setInterval(() => { renderLight(); if (st.cheers.length) renderFeed(); }, 1000);
   setupCheers();
   initMap();
+  loadLetter();
 
   if (DEMO) startDemo();
   else if (!topic) {
